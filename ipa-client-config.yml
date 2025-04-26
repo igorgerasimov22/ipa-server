@@ -1,0 +1,58 @@
+---
+- name: Join client to FreeIPA domain
+  hosts: ipa_clients
+  become: yes
+  tasks:
+    - name: Install necessary packages
+      yum:
+        name:
+          - ipa-client
+          - oddjob
+          - oddjob-mkhomedir
+          - sssd
+        state: present
+
+    - name: Configure the hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Join the FreeIPA domain
+      command: >
+        ipa-client-install
+        --mkhomedir
+        --enable-dns-updates
+        --realm=HOME.LOC
+        --domain=home.loc
+        --principal=admin
+        --password=AdminPass123
+      register: ipa_client_join
+      ignore_errors: yes
+
+    - name: Check if client join was successful
+      fail:
+        msg: "Failed to join the FreeIPA domain"
+      when: ipa_client_join.rc != 0
+
+    - name: Start and enable required services
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - sssd
+        - oddjobd
+
+    - name: Configure firewall
+      firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        state: enabled
+      loop:
+        - freeipa
+        - dns
+      notify: reload firewalld
+
+  handlers:
+    - name: reload firewalld
+      firewalld:
+        state: reloaded

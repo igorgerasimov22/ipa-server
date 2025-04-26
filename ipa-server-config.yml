@@ -1,0 +1,59 @@
+---
+- name: Deploy FreeIPA Server on RedOS
+  hosts: ipa_servers
+  become: yes
+  tasks:
+    - name: Install necessary packages
+      yum:
+        name:
+          - ipa-server
+          - ipa-server-dns
+          - bind
+          - bind-utils
+        state: present
+
+    - name: Configure the hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Set up FreeIPA server
+      command: >
+        ipa-server-install
+        --realm=HOME.LOC
+        --domain=home.loc
+        --admin-password=AdminPass123
+        --setup-dns
+        --no-ntp
+        --ip-address={{ ansible_default_ipv4.address }}
+        --hostname={{ inventory_hostname }}.home.loc
+      register: ipa_install
+      ignore_errors: yes
+
+    - name: Check if IPA server installation was successful
+      fail:
+        msg: "FreeIPA server installation failed"
+      when: ipa_install.rc != 0
+
+    - name: Start and enable services
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - ipa
+        - named
+
+    - name: Configure firewall
+      firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        state: enabled
+      loop:
+        - freeipa
+        - dns
+      notify: reload firewalld
+
+  handlers:
+    - name: reload firewalld
+      firewalld:
+        state: reloaded
